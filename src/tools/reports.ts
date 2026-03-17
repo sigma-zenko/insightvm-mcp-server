@@ -11,23 +11,18 @@ export function registerReportTools(server: McpServer, client: InsightVMClient):
     "insightvm_list_reports",
     {
       title: "List Reports",
-      description: `Returns all report definitions available to the service account, including report name, format, template, and last updated time.
+      description: `Returns all report definitions available to the service account. Use the returned report IDs with insightvm_generate_report and insightvm_get_report_history.
+
+Note: InsightVM returns 401 (not 404) when calling history or output endpoints for a report ID that does not exist. Always use insightvm_list_reports first to confirm the report ID is valid.
 
 Args:
   - page (number): Zero-based page number (default: 0)
-  - size (number): Results per page, max 100 (default: 25)
-
-Returns JSON list of report objects.`,
+  - size (number): Results per page, max 100 (default: 25)`,
       inputSchema: z.object({
         page: z.number().int().min(0).default(0),
         size: z.number().int().min(1).max(100).default(25),
       }).strict(),
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ page, size }) => {
       const response = await client.get<{
@@ -69,19 +64,14 @@ Args:
 
 Returns JSON with the new report ID.`,
       inputSchema: z.object({
-        name: z.string().min(1).describe("Report name"),
-        format: z.enum(["pdf", "csv", "xml", "html", "rtf", "text"]).describe("Output format"),
-        template_id: z.string().min(1).describe("Report template ID"),
-        site_ids: z.array(z.number().int().positive()).optional().describe("Scope to specific site IDs"),
-        asset_group_ids: z.array(z.number().int().positive()).optional().describe("Scope to asset group IDs"),
-        asset_ids: z.array(z.number().int().positive()).optional().describe("Scope to specific asset IDs"),
+        name: z.string().min(1),
+        format: z.enum(["pdf", "csv", "xml", "html", "rtf", "text"]),
+        template_id: z.string().min(1),
+        site_ids: z.array(z.number().int().positive()).optional(),
+        asset_group_ids: z.array(z.number().int().positive()).optional(),
+        asset_ids: z.array(z.number().int().positive()).optional(),
       }).strict(),
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ name, format, template_id, site_ids, asset_group_ids, asset_ids }) => {
       const payload: ReportCreatePayload = {
@@ -98,12 +88,15 @@ Returns JSON with the new report ID.`,
       }
 
       const result = await client.post<{ id: number }>("/reports", payload);
-      const output = {
-        report_id: result.id,
-        message: `Report definition created. Use insightvm_generate_report with report_id ${result.id} to generate it.`,
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            report_id: result.id,
+            message: `Report definition created. Use insightvm_generate_report with report_id ${result.id} to generate it.`,
+          }, null, 2),
+        }],
       };
-
-      return { content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }] };
     }
   );
 
@@ -116,18 +109,11 @@ Returns JSON with the new report ID.`,
       description: `Triggers generation of a previously created report definition. Generation runs asynchronously — use insightvm_get_report_history to check when it is complete.
 
 Args:
-  - report_id (number): The numeric report ID to generate
-
-Returns JSON confirming the generation request was accepted.`,
+  - report_id (number): The numeric report ID to generate`,
       inputSchema: z.object({
-        report_id: z.number().int().positive().describe("Numeric report ID"),
+        report_id: z.number().int().positive(),
       }).strict(),
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ report_id }) => {
       await client.post(`/reports/${report_id}/generate`);
@@ -149,31 +135,50 @@ Returns JSON confirming the generation request was accepted.`,
     "insightvm_get_report_history",
     {
       title: "Get Report History",
-      description: `Returns the generation history for a report, including status and completion time of each run. Use this to confirm a report is ready before retrieving its output.
+      description: `Returns the generation history for a report, including status and completion time of each run.
+
+IMPORTANT: InsightVM returns a 401 error (not 404) when requesting history for a report ID that does not exist. Always confirm the report ID is valid using insightvm_list_reports before calling this tool.
 
 Args:
-  - report_id (number): The numeric report ID
-
-Returns JSON list of report runs with instance ID, status, and generated timestamp.`,
+  - report_id (number): The numeric report ID — must be a valid ID from insightvm_list_reports`,
       inputSchema: z.object({
-        report_id: z.number().int().positive().describe("Numeric report ID"),
+        report_id: z.number().int().positive(),
       }).strict(),
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ report_id }) => {
+      // BUG-013 fix: pre-validate the report exists before fetching history.
+      // InsightVM returns 401 (not 404) for non-existent report IDs on this endpoint.
+      try {
+        await client.get<Report>(`/reports/${report_id}`);
+      } catch {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              error: `Report ID ${report_id} does not exist or is not accessible to the service account.`,
+              suggestion: "Use insightvm_list_reports to get a list of valid report IDs.",
+            }, null, 2),
+          }],
+        };
+      }
+
       const response = await client.get<{
         resources: ReportHistory[];
       }>(`/reports/${report_id}/history`);
 
+      const history = (response.resources ?? []).map((h) => ({
+        id: h.id,
+        instanceId: h.instanceId,
+        status: h.status,
+        generated: h.generated,
+        uri: h.uri,
+      }));
+
       return {
         content: [{
           type: "text" as const,
-          text: JSON.stringify({ report_id, history: response.resources ?? [] }, null, 2),
+          text: JSON.stringify({ report_id, history }, null, 2),
         }],
       };
     }
@@ -191,17 +196,12 @@ Args:
   - report_id (number): The numeric report ID
   - instance_id (number): The specific run instance ID from report history
 
-Returns the report content as text. Large reports will be truncated — download directly from the console for full output.`,
+Returns the report content as text. Large reports are truncated — download from the console for full output.`,
       inputSchema: z.object({
-        report_id: z.number().int().positive().describe("Numeric report ID"),
-        instance_id: z.number().int().positive().describe("Report run instance ID from history"),
+        report_id: z.number().int().positive(),
+        instance_id: z.number().int().positive(),
       }).strict(),
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ report_id, instance_id }) => {
       const output = await client.get<string>(

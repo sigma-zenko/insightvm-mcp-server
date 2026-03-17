@@ -1,6 +1,6 @@
 {
   "name": "insightvm-mcp-server",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "description": "MCP server for Rapid7 InsightVM. Asset triage, scan management, reporting, remediation tracking, and port drift detection.",
   "main": "dist/index.js",
   "author": "Reyna Martinez",

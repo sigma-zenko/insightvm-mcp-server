@@ -82,6 +82,32 @@ export class InsightVMClient {
 
     return results;
   }
+
+  // POST-based pagination for search endpoints
+  async getAllPagesPOST<T>(
+    path: string,
+    body: unknown,
+    maxPages: number = MAX_PAGES
+  ): Promise<T[]> {
+    const results: T[] = [];
+    let page = 0;
+
+    while (page < maxPages) {
+      const response = await this.post<PagedResponse<T>>(
+        `${path}?page=${page}&size=${DEFAULT_PAGE_SIZE}`,
+        body
+      );
+
+      const resources = response.resources ?? [];
+      results.push(...resources);
+
+      const totalPages = response.page?.totalPages ?? 1;
+      if (page + 1 >= totalPages) break;
+      page++;
+    }
+
+    return results;
+  }
 }
 
 // ── Error formatting ──────────────────────────────────────────────────────────

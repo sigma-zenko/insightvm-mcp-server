@@ -1,13 +1,13 @@
 // ── Config ────────────────────────────────────────────────────────────────────
 
 export interface InsightVMConfig {
-  host: string;           // Console hostname or IP
-  port: number;           // Default: 3780
+  host: string;
+  port: number;
   username: string;
   password: string;
-  ownedSiteId: string;    // The single site this MCP has full ownership over
-  verifySsl: boolean;     // Set false for self-signed certs in dev environments
-  portExclusions: number[]; // Ports considered known-good for drift detection
+  ownedSiteId: string;
+  verifySsl: boolean;
+  portExclusions: number[];
 }
 
 // ── Pagination ────────────────────────────────────────────────────────────────
@@ -27,17 +27,34 @@ export interface PagedResponse<T> {
 export interface Asset {
   id: number;
   hostName?: string;
+  hostNames?: Array<{ name: string; source?: string }>;
   ip?: string;
-  os?: OsInfo;
+  mac?: string;
+  addresses?: Array<{ ip: string; mac?: string }>;
+  ids?: Array<{ id: string; source?: string }>;
+  // `os` is a plain string description in the API response
+  os?: string;
+  osCertainty?: string;
+  osFingerprint?: OsFingerprint;
   riskScore?: number;
+  rawRiskScore?: number;
   vulnerabilities?: VulnerabilitySummary;
+  // lastScanTime is derived from history[0].date
   lastScanTime?: string;
+  history?: Array<{ date?: string; scanId?: number; type?: string; user?: string }>;
+  type?: string;
+  assessedForVulnerabilities?: boolean;
+  assessedForPolicies?: boolean;
+  sites?: Array<{ id: number; name?: string }>;
 }
 
-export interface OsInfo {
-  name?: string;
+export interface OsFingerprint {
+  architecture?: string;
   family?: string;
+  vendor?: string;
+  product?: string;
   version?: string;
+  cpe?: string;
 }
 
 export interface VulnerabilitySummary {
@@ -47,12 +64,9 @@ export interface VulnerabilitySummary {
   total: number;
 }
 
+// Asset-scoped vuln — lightweight, enrichment requires join to /vulnerabilities/{id}
 export interface AssetVulnerability {
   id: string;
-  title: string;
-  severity: string;
-  cvssV3Score?: number;
-  cvssV2Score?: number;
   since?: string;
   status?: string;
   results?: VulnResult[];
@@ -65,12 +79,17 @@ export interface VulnResult {
   proof?: string;
 }
 
+// Service fields are directly on the object — no nesting
 export interface AssetService {
   port: number;
   protocol: string;
   name?: string;
   product?: string;
+  vendor?: string;
   version?: string;
+  family?: string;
+  configurations?: Array<{ name: string; value?: string }>;
+  webApplications?: Array<{ name?: string; webApp?: string }>;
 }
 
 // ── Vulnerabilities ───────────────────────────────────────────────────────────
@@ -78,13 +97,18 @@ export interface AssetService {
 export interface Vulnerability {
   id: string;
   title: string;
-  description?: string;
+  description?: { text?: string; html?: string };
   severity: string;
+  severityScore?: number;
   riskScore?: number;
   cvss?: CvssInfo;
   published?: string;
+  added?: string;
   modified?: string;
   categories?: string[];
+  cves?: string[];
+  exploits?: number;
+  malwareKits?: number;
 }
 
 export interface CvssInfo {
@@ -121,10 +145,17 @@ export interface Scan {
   status: string;
   startTime?: string;
   endTime?: string;
+  duration?: string;
   assets?: ScanAssetCount;
   vulnerabilities?: ScanVulnCount;
   engineName?: string;
+  engineId?: number;
+  engineIds?: Array<{ id: number; newScanEngine?: boolean; scope?: string }>;
   scanName?: string;
+  scanType?: string;
+  startedBy?: string;
+  startedByUsername?: string;
+  message?: string;
 }
 
 export interface ScanAssetCount {
@@ -152,9 +183,20 @@ export interface Site {
   description?: string;
   riskScore?: number;
   scanTemplate?: string;
+  scanTemplateId?: string;
   assets?: number;
   lastScanTime?: string;
   links?: Array<{ rel: string; href: string }>;
+}
+
+export interface SiteConfig extends Site {
+  engineId?: number;
+  engineName?: string;
+  targets?: {
+    includedTargets?: { addresses: string[] };
+    excludedTargets?: { addresses: string[] };
+  };
+  credentials?: Array<{ name: string; service?: string }>;
 }
 
 export interface SiteUpdatePayload {
@@ -167,6 +209,46 @@ export interface SiteUpdatePayload {
 export interface SiteTargets {
   includedTargets?: { addresses: string[] };
   excludedTargets?: { addresses: string[] };
+}
+
+// ── Scan Schedules ────────────────────────────────────────────────────────────
+
+export interface ScanSchedule {
+  id: number;
+  enabled: boolean;
+  scanName?: string;
+  scanTemplateId?: string;
+  duration?: string;
+  nextRuntimeScheduled?: string;
+  start?: string;
+  frequency?: {
+    interval?: number;
+    type?: string;
+    dayOfWeek?: string;
+  };
+  scanEngineId?: number;
+}
+
+// ── Scan Templates ────────────────────────────────────────────────────────────
+
+export interface ScanTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  builtIn?: boolean;
+}
+
+// ── Scan Engines ──────────────────────────────────────────────────────────────
+
+export interface ScanEngine {
+  id: number;
+  name: string;
+  address?: string;
+  port?: number;
+  status?: string;
+  version?: string;
+  lastRefreshedDate?: string;
+  sites?: number[];
 }
 
 // ── Reports ───────────────────────────────────────────────────────────────────
